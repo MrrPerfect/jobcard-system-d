@@ -1,31 +1,35 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './pages/Login.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import JobCardForm from './pages/JobCardForm.jsx';
+import JobCardList from './pages/JobCardList.jsx';
+import TechnicianJobs from './pages/TechnicianJobs.jsx';
+import ManagerKanban from './pages/ManagerKanban.jsx';
+import AdminPanel from './pages/AdminPanel.jsx';
+import Cashier from './pages/Cashier.jsx';
 
-import React, { useState } from 'react';
-import ReactDOM from 'react-dom/client';
-
-function App(){
-  const [email,setEmail]=useState('');
-  const [password,setPassword]=useState('');
-  const [msg,setMsg]=useState('');
-
-  const login = async ()=>{
-    const res = await fetch('http://localhost:5000/api/auth/login',{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ email, password })
-    });
-    const data = await res.json();
-    setMsg(JSON.stringify(data));
-  };
-
-  return (
-    <div>
-      <h2>Login Phase 1</h2>
-      <input placeholder="email" onChange={e=>setEmail(e.target.value)} />
-      <input placeholder="password" type="password" onChange={e=>setPassword(e.target.value)} />
-      <button onClick={login}>Login</button>
-      <pre>{msg}</pre>
-    </div>
-  );
+function Protected({ children, roles }) {
+  const token = localStorage.getItem('token');
+  const role = localStorage.getItem('role');
+  if (!token) return <Navigate to="/login" replace />;
+  if (roles && roles.length && !roles.includes(role)) return <Navigate to="/login" replace />;
+  return children;
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(
+  <BrowserRouter>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/jobcards" element={<Protected><JobCardList /></Protected>} />
+      <Route path="/jobcards/new" element={<Protected roles={['advisor']}><JobCardForm /></Protected>} />
+      <Route path="/technician" element={<Protected roles={['technician']}><TechnicianJobs /></Protected>} />
+      <Route path="/manager" element={<Protected roles={['manager']}><ManagerKanban /></Protected>} />
+      <Route path="/admin" element={<Protected roles={['manager']}><AdminPanel /></Protected>} />
+      <Route path="/cashier" element={<Protected roles={['cashier']}><Cashier /></Protected>} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  </BrowserRouter>
+);

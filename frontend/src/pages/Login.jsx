@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import api from '../services/api.js';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,7 +13,9 @@ export default function Login() {
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('role', res.data.user.role);
       localStorage.setItem('name', res.data.user.name);
-      nav('/dashboard');
+      if (res.data.user.role === 'advisor') nav('/jobcards/new');
+      else if (res.data.user.role === 'technician') nav('/technician');
+      else nav('/dashboard');
     } catch (err) {
       alert(err?.response?.data?.message || 'Login failed');
     }
