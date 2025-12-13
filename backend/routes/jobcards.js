@@ -1,35 +1,116 @@
 import express from 'express';
 import JobCard from '../models/JobCard.js';
-import jwt from 'jsonwebtoken';
-
+import { requireAuth, requireRole } from '../middleware/auth.js';
 const router = express.Router();
 
-const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ msg: 'No token' });
+/**
+ * Advisor creates a jobcard
+ */
+router.post('/', requireAuth, requireRole('advisor'), async (req, res) => {
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ msg: 'Invalid token' });
+    const data = { ...req.body, createdBy: req.user._id };
+    const jc = await JobCard.create(data);
+    return res.status(201).json(jc);
+  } catch (err) {
+    return res.status(400).json({ message: err.message });
   }
-};
-
-router.post('/', auth, async (req, res) => {
-  if (req.user.role !== 'service_advisor')
-    return res.status(403).json({ msg: 'Forbidden' });
-
-  const job = await JobCard.create({
-    ...req.body,
-    createdBy: req.user.id
-  });
-
-  res.json(job);
 });
 
-router.get('/', auth, async (req, res) => {
-  const jobs = await JobCard.find().sort({ createdAt: -1 });
-  res.json(jobs);
+/**
+ * List jobcards based on role
+ */
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    if (req.user.role === 'manager') {
+      const all = await JobCard.find().populate('assignedTo createdBy');
+      return res.json(all);
+    }
+    if (req.user.role === 'advisor') {
+      const mine = await JobCard.find({ createdBy: req.user._id }).populate('assignedTo');
+      return res.json(mine);
+    }
+    if (req.user.role === 'technician') {
+      const assigned = await JobCard.find({ assignedTo: req.user._id });
+      return res.json(assigned);
+    }
+    if (req.user.role === 'cashier') {
+      const done = await JobCard.find({ status: 'Done' });
+      return res.json(done);
+    }
+    return res.json([]);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
+/**
+ * Detail
+ */
+router.get('/:id', requireAuth, async (req, res) => {
+  try {
+    const jc = await JobCard.findById(req.params.id).populate('assignedTo createdBy');
+    if (!jc) return res.status(404).json({ message: 'Not found' });
+    return res.json(jc);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
+/**
+ * Technician updates status / critical / finalSummary
+ */
+router.patch('/:id/status', requireAuth, requireRole('technician'), async (req, res) => {
+  try {
+    const { status, finalSummary, critical } = req.body;
+    const job = await JobCard.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: 'Not found' });
+
+    // validate transition
+    const valid = {
+      Created: ['Assigned'],
+      Assigned: ['In Progress'],
+      'In Progress': ['Done'],
+      Done: []
+    };
+
+    if (status && status !== job.status) {
+      const allowed = valid[job.status] || [];
+      if (!allowed.includes(status) && req.user.role !== 'manager') {
+        return res.status(400).json({ message: 'Invalid status transition' });
+      }
+      job.status = status;
+    }
+
+    if (typeof critical === 'boolean') job.critical = critical;
+    if (finalSummary) job.finalSummary = finalSummary;
+
+    await job.save();
+    return res.json(job);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
+/**
+ * Manager or advisor can assign technician
+ */
+router.patch('/:id/assign', requireAuth, (req, res, next) => {
+  // require manager or advisor; manager allowed always, advisor allowed if they created the job
+  if (req.user.role === 'manager') return next();
+  if (req.user.role === 'advisor') return next();
+  return res.status(403).json({ message: 'Forbidden' });
+}, async (req, res) => {
+  try {
+    const { technicianId } = req.body;
+    const job = await JobCard.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: 'Not found' });
+    job.assignedTo = technicianId;
+    job.status = 'Assigned';
+    await job.save();
+    return res.json(job);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
 });
 
 export default router;
