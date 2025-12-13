@@ -19,7 +19,8 @@ export default function Dashboard(){
 
         <div className="card">
           <h4>Info</h4>
-          <p className="small">This demo supports advisor → technician → manager → cashier flows. Use seeded users (advisor@example.com / pass123, tech@example.com / pass123, manager@example.com / pass123, cashier@example.com / pass123).</p>
+          <p className="small">This a Job Card management system for both 2-wheeler and
+4-wheeler service workshops.</p>
         </div>
 
         <div className="card">

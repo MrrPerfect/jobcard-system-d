@@ -113,4 +113,46 @@ router.patch('/:id/assign', requireAuth, (req, res, next) => {
   }
 });
 
+/**
+ * Add or update service charges on a jobcard
+ * - Technicians may add charges (their labour/service items)
+ * - Managers may add or override charges
+ * Body: { charges: [{ description, amount }] }
+ */
+router.patch('/:id/service-charges', requireAuth, async (req, res) => {
+  try {
+    const { charges } = req.body;
+    if (!Array.isArray(charges)) return res.status(400).json({ message: 'charges array required' });
+
+    // only technician or manager allowed
+    if (!['technician','manager'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const job = await JobCard.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: 'Not found' });
+
+    // if technician, ensure they are assigned to the job
+    if (req.user.role === 'technician' && job.assignedTo && job.assignedTo.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Technician can only add charges to their assigned jobs' });
+    }
+
+    // map and attach addedBy
+    const newCharges = charges.map(c => ({
+      description: c.description || '',
+      amount: Number(c.amount) || 0,
+      addedBy: req.user._id,
+      addedAt: new Date()
+    }));
+
+    // append (manager could override by sending empty array and then new charges)
+    job.serviceCharges = (job.serviceCharges || []).concat(newCharges);
+    await job.save();
+
+    return res.json(job);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
 export default router;
