@@ -1,157 +1,275 @@
-import express from 'express';
-import JobCard from '../models/JobCard.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import express from "express";
+import JobCard from "../models/JobCard.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+
 const router = express.Router();
 
-/**
- * Advisor creates a jobcard
- */
-router.post('/', requireAuth, requireRole('advisor'), async (req, res) => {
+/* =========================================================
+   CREATE JOBCARD (Advisor)
+========================================================= */
+router.post("/", requireAuth, requireRole("advisor"), async (req, res) => {
   try {
-    const data = { ...req.body, createdBy: req.user._id };
-    const jc = await JobCard.create(data);
-    return res.status(201).json(jc);
+    const job = await JobCard.create({
+      ...req.body,
+      createdBy: req.user._id,
+    });
+    res.status(201).json(job);
   } catch (err) {
-    return res.status(400).json({ message: err.message });
+    res.status(400).json({ message: err.message });
   }
 });
 
-/**
- * List jobcards based on role
- */
-router.get('/', requireAuth, async (req, res) => {
+/* =========================================================
+   LIST JOBCARDS (Role-based)
+========================================================= */
+router.get("/", requireAuth, async (req, res) => {
   try {
-    if (req.user.role === 'manager') {
-      const all = await JobCard.find().populate('assignedTo createdBy');
-      return res.json(all);
-    }
-    if (req.user.role === 'advisor') {
-      const mine = await JobCard.find({ createdBy: req.user._id }).populate('assignedTo');
-      return res.json(mine);
-    }
-    if (req.user.role === 'technician') {
-      const assigned = await JobCard.find({ assignedTo: req.user._id });
-      return res.json(assigned);
-    }
-    if (req.user.role === 'cashier') {
-      const done = await JobCard.find({ status: 'Done' });
-      return res.json(done);
-    }
-    return res.json([]);
+    const role = req.user.role;
+
+    if (role === "manager")
+      return res.json(await JobCard.find().populate("assignedTo createdBy"));
+
+    if (role === "advisor")
+      return res.json(await JobCard.find({ createdBy: req.user._id }));
+
+    if (role === "technician")
+      return res.json(
+        await JobCard.find({ assignedTo: req.user._id }).populate(
+          "assignedTo createdBy",
+        ),
+      );
+
+    if (role === "cashier")
+      return res.json(await JobCard.find({ status: "Done" }));
+
+    res.json([]);
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-/**
- * Detail
- */
-router.get('/:id', requireAuth, async (req, res) => {
+/* =========================================================
+   GET SINGLE JOBCARD
+========================================================= */
+router.get("/:id", requireAuth, async (req, res) => {
   try {
-    const jc = await JobCard.findById(req.params.id).populate('assignedTo createdBy');
-    if (!jc) return res.status(404).json({ message: 'Not found' });
-    return res.json(jc);
+    const job = await JobCard.findById(req.params.id).populate(
+      "assignedTo createdBy",
+    );
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    res.json(job);
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-/**
- * Technician updates status / critical / finalSummary
- */
-router.patch('/:id/status', requireAuth, requireRole('technician'), async (req, res) => {
+/* =========================================================
+   UPDATE GENERIC FIELDS (summary, partsUsed, serviceCharges)
+   <-- THIS FIXES YOUR 404
+========================================================= */
+router.patch("/:id", requireAuth, async (req, res) => {
   try {
-    const { status, finalSummary, critical } = req.body;
+    const job = await JobCard.findByIdAndUpdate(
+      req.params.id,
+      { $set: req.body },
+      { new: true },
+    );
+    if (!job) return res.status(404).json({ message: "Job not found" });
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* =========================================================
+   UPDATE STATUS (Technician / Manager)
+========================================================= */
+router.patch("/:id/status", requireAuth, async (req, res) => {
+  try {
+    const { status } = req.body;
     const job = await JobCard.findById(req.params.id);
-    if (!job) return res.status(404).json({ message: 'Not found' });
+    if (!job) return res.status(404).json({ message: "Job not found" });
 
-    // validate transition
-    const valid = {
-      Created: ['Assigned'],
-      Assigned: ['In Progress'],
-      'In Progress': ['Done'],
-      Done: []
+    const allowed = {
+      Created: ["Assigned"],
+      Assigned: ["In Progress"],
+      "In Progress": ["Done"],
+      Done: [],
     };
 
-    if (status && status !== job.status) {
-      const allowed = valid[job.status] || [];
-      if (!allowed.includes(status) && req.user.role !== 'manager') {
-        return res.status(400).json({ message: 'Invalid status transition' });
-      }
-      job.status = status;
+    if (
+      status &&
+      status !== job.status &&
+      !allowed[job.status].includes(status) &&
+      req.user.role !== "manager"
+    ) {
+      return res.status(400).json({ message: "Invalid status transition" });
     }
 
-    if (typeof critical === 'boolean') job.critical = critical;
-    if (finalSummary) job.finalSummary = finalSummary;
-
+    if (status) job.status = status;
     await job.save();
-    return res.json(job);
+
+    res.json(job);
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-/**
- * Manager or advisor can assign technician
- */
-router.patch('/:id/assign', requireAuth, (req, res, next) => {
-  // require manager or advisor; manager allowed always, advisor allowed if they created the job
-  if (req.user.role === 'manager') return next();
-  if (req.user.role === 'advisor') return next();
-  return res.status(403).json({ message: 'Forbidden' });
-}, async (req, res) => {
+/* =========================================================
+   ASSIGN TECHNICIAN (Advisor / Manager)
+========================================================= */
+router.patch("/:id/assign", requireAuth, async (req, res) => {
   try {
+    if (!["advisor", "manager"].includes(req.user.role))
+      return res.status(403).json({ message: "Forbidden" });
+
     const { technicianId } = req.body;
     const job = await JobCard.findById(req.params.id);
-    if (!job) return res.status(404).json({ message: 'Not found' });
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
     job.assignedTo = technicianId;
-    job.status = 'Assigned';
+    job.assignedBy = req.user._id; // the advisor/manager doing the assignment
+    job.assignedAt = new Date();
+    job.status = "Assigned";
     await job.save();
-    return res.json(job);
+
+    res.json(job);
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* =========================================================
+   ADD SERVICE CHARGES (Technician / Manager)
+========================================================= */
+router.patch("/:id/service-charges", requireAuth, async (req, res) => {
+  try {
+    const job = await JobCard.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    // Only assigned technician or manager
+    if (
+      req.user.role === "technician" &&
+      (!job.assignedTo || job.assignedTo.toString() !== req.user._id.toString())
+    ) {
+      return res.status(403).json({ message: "Not your job" });
+    }
+
+    if (!["technician", "manager"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { charges } = req.body;
+    if (!Array.isArray(charges)) {
+      return res.status(400).json({ message: "charges array required" });
+    }
+
+    const mappedCharges = charges.map((c) => ({
+      description: c.description || "",
+      amount: Number(c.amount) || 0,
+      addedBy: req.user._id,
+      addedAt: new Date(),
+    }));
+
+    job.serviceCharges = [...(job.serviceCharges || []), ...mappedCharges];
+    await job.save();
+
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* =========================================================
+   ADD USED PART (Technician)
+========================================================= */
+router.patch("/:id/parts", requireAuth, async (req, res) => {
+  try {
+    if (!["technician", "manager"].includes(req.user.role))
+      return res.status(403).json({ message: "Not allowed" });
+
+    const { partId, name, qty, reason, priceAtUse } = req.body;
+    if (!partId || !qty)
+      return res.status(400).json({ message: "partId & qty required" });
+
+    const job = await JobCard.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    job.partsUsed = job.partsUsed || [];
+    job.partsUsed.push({
+      partId,
+      name,
+      qty: Number(qty),
+      reason: reason || "",
+      priceAtUse: Number(priceAtUse) || 0,
+      addedBy: req.user._id,
+      addedAt: new Date(),
+    });
+
+    await job.save();
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
 /**
- * Add or update service charges on a jobcard
- * - Technicians may add charges (their labour/service items)
- * - Managers may add or override charges
- * Body: { charges: [{ description, amount }] }
+ * MARK JOB AS CRITICAL
+ * Technicians can mark a job as critical and optionally add a note.
  */
-router.patch('/:id/service-charges', requireAuth, async (req, res) => {
+router.patch("/:id/critical", requireAuth, async (req, res) => {
   try {
-    const { charges } = req.body;
-    if (!Array.isArray(charges)) return res.status(400).json({ message: 'charges array required' });
-
-    // only technician or manager allowed
-    if (!['technician','manager'].includes(req.user.role)) {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
-
+    const { note } = req.body; // optional description of the issue
     const job = await JobCard.findById(req.params.id);
-    if (!job) return res.status(404).json({ message: 'Not found' });
+    if (!job) return res.status(404).json({ message: "Job not found" });
 
-    // if technician, ensure they are assigned to the job
-    if (req.user.role === 'technician' && job.assignedTo && job.assignedTo.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Technician can only add charges to their assigned jobs' });
+    // Only technician or manager/advisor can mark critical
+    if (!["technician", "manager", "advisor"].includes(req.user.role)) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to mark critical" });
     }
 
-    // map and attach addedBy
-    const newCharges = charges.map(c => ({
-      description: c.description || '',
-      amount: Number(c.amount) || 0,
-      addedBy: req.user._id,
-      addedAt: new Date()
-    }));
-
-    // append (manager could override by sending empty array and then new charges)
-    job.serviceCharges = (job.serviceCharges || []).concat(newCharges);
+    job.critical = true;
+    if (note) job.criticalNote = note; // optional field
     await job.save();
 
-    return res.json(job);
+    // TODO: notify service advisor (e.g., via email or websocket)
+    res.json(job);
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/**
+ * NOTIFY SERVICE ADVISOR
+ * Triggered when a critical issue is marked
+ */
+/**
+ * NOTIFY SERVICE ADVISOR
+ */
+router.post("/:id/notify-advisor", requireAuth, async (req, res) => {
+  try {
+    const job = await JobCard.findById(req.params.id).populate("createdBy");
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    if (req.user.role !== "technician") {
+      return res
+        .status(403)
+        .json({ message: "Only technician can notify advisor" });
+    }
+
+    const advisor = job.createdBy;
+    if (!advisor)
+      return res.status(400).json({ message: "No advisor assigned" });
+
+    console.log(
+      `Notification: Job ${job._id} marked critical by technician ${req.user._id}. Notify advisor ${advisor._id}`,
+    );
+
+    res.json({ message: "Advisor notified successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

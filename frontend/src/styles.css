@@ -27,7 +27,7 @@ body {
   background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%);
   color: #fff;
   padding: 12px 18px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 .brand {
   font-weight: 700;
@@ -39,15 +39,17 @@ body {
   gap: 20px;
 }
 .nav .link {
-  color: rgba(255,255,255,0.95);
+  color: rgba(255, 255, 255, 0.95);
   text-decoration: none;
   padding: 6px 10px;
   border-radius: 6px;
-  transition: background .15s ease, transform .06s ease;
+  transition:
+    background 0.15s ease,
+    transform 0.06s ease;
   display: inline-block;
 }
 .nav .link:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255, 255, 255, 0.08);
   transform: translateY(-1px);
 }
 .btn {
@@ -57,17 +59,20 @@ body {
   padding: 6px 10px;
   border-radius: 6px;
   cursor: pointer;
-  transition: background .12s ease, transform .06s ease, box-shadow .12s ease;
+  transition:
+    background 0.12s ease,
+    transform 0.06s ease,
+    box-shadow 0.12s ease;
 }
 .btn:hover {
   background: #84c1ff;
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(37,99,235,0.08);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.08);
 }
 .btn.ghost {
   background: transparent;
   color: #fc0404;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 .btn.ghost:hover {
   background: #ffb5b5;
@@ -137,7 +142,7 @@ textarea {
   text-decoration: none;
 }
 .header .card.small {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
   border: none;
 }

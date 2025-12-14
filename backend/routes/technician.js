@@ -1,75 +1,107 @@
-import express from 'express';
-import JobCard from '../models/JobCard.js';
-import jwt from 'jsonwebtoken';
+import express from "express";
+import JobCard from "../models/JobCard.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
 
-/**
- * AUTH MIDDLEWARE (same as your working one)
- */
-const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ msg: 'No token' });
+/* =========================================================
+   GET JOBS FOR LOGGED-IN TECHNICIAN
+========================================================= */
+router.get(
+  "/jobs",
+  requireAuth,
+  requireRole("technician"),
+  async (req, res) => {
+    try {
+      const jobs = await JobCard.find({
+        assignedTo: req.user._id,
+      })
+        .populate("createdBy assignedTo")
+        .sort({ createdAt: -1 });
 
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ msg: 'Invalid token' });
-  }
-};
+      res.json(jobs);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+);
 
-/**
- * GET JOBS FOR TECHNICIAN
- */
-router.get('/jobs', auth, async (req, res) => {
-  if (req.user.role !== 'technician')
-    return res.status(403).json({ msg: 'Forbidden' });
+/* =========================================================
+   START JOB (Assigned → In Progress)
+========================================================= */
+router.put(
+  "/jobs/:id/start",
+  requireAuth,
+  requireRole("technician"),
+  async (req, res) => {
+    try {
+      const job = await JobCard.findById(req.params.id);
+      if (!job) return res.status(404).json({ message: "Job not found" });
 
-  const jobs = await JobCard.find({
-    $or: [
-      { status: 'CREATED' },
-      { assignedTechnician: req.user.id }
-    ]
-  }).sort({ createdAt: -1 });
+      // must be assigned to this technician
+      if (
+        !job.assignedTo ||
+        job.assignedTo.toString() !== req.user._id.toString()
+      ) {
+        return res
+          .status(403)
+          .json({ message: "This job is not assigned to you" });
+      }
 
-  res.json(jobs);
-});
+      if (job.status !== "Assigned") {
+        return res
+          .status(400)
+          .json({ message: "Job must be Assigned to start" });
+      }
 
-/**
- * START JOB
- */
-router.put('/jobs/:id/start', auth, async (req, res) => {
-  if (req.user.role !== 'technician')
-    return res.status(403).json({ msg: 'Forbidden' });
+      job.status = "In Progress";
+      await job.save();
 
-  const job = await JobCard.findById(req.params.id);
-  if (!job) return res.status(404).json({ msg: 'Job not found' });
+      res.json(job);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+);
 
-  job.status = 'IN_PROGRESS';
-  job.assignedTechnician = req.user.id;
-  await job.save();
+/* =========================================================
+   COMPLETE JOB (In Progress → Done)
+========================================================= */
+router.put(
+  "/jobs/:id/complete",
+  requireAuth,
+  requireRole("technician"),
+  async (req, res) => {
+    try {
+      const { technicianSummary } = req.body;
 
-  res.json(job);
-});
+      const job = await JobCard.findById(req.params.id);
+      if (!job) return res.status(404).json({ message: "Job not found" });
 
-/**
- * COMPLETE JOB
- */
-router.put('/jobs/:id/complete', auth, async (req, res) => {
-  if (req.user.role !== 'technician')
-    return res.status(403).json({ msg: 'Forbidden' });
+      if (
+        !job.assignedTo ||
+        job.assignedTo.toString() !== req.user._id.toString()
+      ) {
+        return res
+          .status(403)
+          .json({ message: "This job is not assigned to you" });
+      }
 
-  const { technicianSummary } = req.body;
+      if (job.status !== "In Progress") {
+        return res
+          .status(400)
+          .json({ message: "Job must be In Progress to complete" });
+      }
 
-  const job = await JobCard.findById(req.params.id);
-  if (!job) return res.status(404).json({ msg: 'Job not found' });
+      job.status = "Done";
+      job.finalSummary = technicianSummary || "";
+      await job.save();
 
-  job.status = 'DONE';
-  job.technicianSummary = technicianSummary;
-  await job.save();
-
-  res.json(job);
-});
+      res.json(job);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+);
 
 export default router;
